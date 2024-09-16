@@ -1,0 +1,116 @@
+/* Global Variables */
+:root {
+  --primary-color: #4a90e2;
+  --secondary-color: #333;
+  --background-color: #f4f4f4;
+  --border-radius: 8px;
+  --font-family: 'Arial', sans-serif;
+}
+
+/* Global Styles */
+body {
+  font-family: var(--font-family);
+  background-color: var(--background-color);
+  margin: 0;
+}
+
+/* Main Container */
+.main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 20px;
+  background-color: var(--background-color);
+}
+
+/* Content Card */
+.content {
+  width: 100%;
+  max-width: 500px;
+  border-radius: var(--border-radius);
+  background-color: #fff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* Header Styles */
+.header h1 {
+  font-size: 2.5rem;
+  color: var(--secondary-color);
+  margin-bottom: 10px;
+}
+
+.header p {
+  font-size: 1.2rem;
+  color: var(--primary-color);
+}
+
+/* Form Input */
+.form-control {
+  height: 45px;
+  font-size: 1rem;
+  border-radius: var(--border-radius);
+  border: 1px solid #ccc;
+}
+
+/* Button Styles */
+.btn-primary {
+  height: 45px;
+  font-size: 1rem;
+  border-radius: var(--border-radius);
+  background-color: var(--primary-color);
+  border: none;
+}
+
+.btn-primary:hover {
+  background-color: #357ABD;
+}
+
+/* Focus States */
+.form-control:focus,
+.btn-primary:focus {
+  box-shadow: none;
+  border-color: var(--primary-color);
+}
+
+/* Transaction Page Styles */
+#content {
+  font-family: var(--font-family);
+  color: var(--secondary-color);
+}
+
+#content h2 {
+  color: var(--secondary-color);
+}
+
+#content p {
+  margin-bottom: 0.5rem;
+}
+
+#content .font-weight-bold {
+  color: var(--primary-color);
+  word-break: break-all;
+}
+
+/* Success Status */
+#success {
+  color: #00a186;
+  background-color: #EAF5F3;
+  font-weight: bold;
+  border: 1px solid #00a186;
+  border-radius: 0.25em;
+  padding: 0.25em 0.5em;
+  font-size: 0.75em;
+}
+
+/* Failure Status */
+#failure {
+  color: #d9534f;
+  background-color: #f8d7da;
+  font-weight: bold;
+  border: 1px solid #d9534f;
+  border-radius: 0.25em;
+  padding: 0.25em 0.5em;
+  font-size: 0.75em;
+}

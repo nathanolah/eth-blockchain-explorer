@@ -1,95 +1,51 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import 'bootstrap/dist/css/bootstrap.min.css';
+import styles from "./styles.css";
+import { ethers } from 'ethers'; 
 
 export default function Home() {
+  const [searchVal, setSearchVal] = useState(undefined);
+    const router = useRouter();
+
+  const search = e => {
+    e.preventDefault(); // Prevents the form from reloading the page
+    // console.log(searchVal)
+    if (ethers.isAddress(searchVal)) {
+      router.push(`address/${searchVal}`);
+    } else {
+      router.push(`transaction/${searchVal}`);
+    }
+  }
+
   return (
-    <main className={styles.main}>
-      <div className={styles.description}>
-        <p>
-          Get started by editing&nbsp;
-          <code className={styles.code}>src/app/page.js</code>
-        </p>
-        <div>
-          <a
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className={styles.vercelLogo}
-              width={100}
-              height={24}
-              priority
+    <main className={`container ${styles.main}`}>
+      <header className="text-center my-4">
+        <h1 className="display-4">Blockchain Explorer</h1>
+        <p className="lead">Ethereum Blockchain Explorer</p>
+      </header>
+      <section className={`card p-4 shadow ${styles.content}`}>
+        <form className="d-flex flex-column align-items-center">
+          <div className="w-100" style={{ maxWidth: '400px' }}>
+            <input
+              className="form-control mb-3"
+              type="text"
+              placeholder="Search Transaction Hash / Address"
+              onChange={e => setSearchVal(e.target.value)}
+              value={searchVal}
             />
-          </a>
-        </div>
-      </div>
-
-      <div className={styles.center}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
-      </div>
-
-      <div className={styles.grid}>
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Docs <span>-&gt;</span>
-          </h2>
-          <p>Find in-depth information about Next.js features and API.</p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Learn <span>-&gt;</span>
-          </h2>
-          <p>Learn about Next.js in an interactive course with&nbsp;quizzes!</p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Templates <span>-&gt;</span>
-          </h2>
-          <p>Explore starter templates for Next.js.</p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className={styles.card}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2>
-            Deploy <span>-&gt;</span>
-          </h2>
-          <p>
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
-      </div>
+            <button
+              className="btn btn-primary btn-block"
+              type="submit"
+              style={{ width: '100%' }}
+              onClick={search}
+            >
+              Search
+            </button>
+          </div>
+        </form>
+      </section>
     </main>
   );
 }
