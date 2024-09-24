@@ -4,19 +4,17 @@ import styles from "../../styles.css";
 import moment from 'moment';
 import { ethers } from "ethers";
 import tokenJson from "../../token.json";
+import multicallAbi from "../../multicall.json";
 
 const infuraKey = process.env.INFURA_API_KEY;
 const alchemyKey = process.env.ALCHEMY_API_KEY;
 const moralisKey = process.env.MORALIS_API_KEY;
 const infuraURL = `https://mainnet.infura.io/v3/${infuraKey}`
-const alchemyURL = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
-
-// 
-const provider = new providers.JsonRpcProvider(infuraURL)
+// const alchemyURL = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
 
 // Get token balances for Ethereum address
 const getTokenBalances = async (address) => {
-    const moralisURL = `https://deep-index.moralis.io/api/v2.2/${address}/erc20?chain=eth`
+    const moralisURL = `https://deep-index.moralis.io/api/v2.2/${address}/erc20?chain=eth&exclude_spam=true`
     const res = await fetch(moralisURL, {
         mehtod: "GET",
         headers: {
@@ -60,35 +58,74 @@ const getBalance = async (address) => {
     return data.result;
 }
 
-// Fetch ERC20 token details by contract address
-const getContractDetails = async (contractAddress) => {
-    const contract = new ethers.Contract(contractAddress, tokenJson.abi, provider);
+// Fetch ERC20 token details for the wallet address by the token contract address via multicall
+const getContractDetails = async (tokensData, walletAddr) => {
+    const provider = new ethers.JsonRpcProvider(infuraURL);
+    const multicallAddr = "0x5ba1e12693dc8f9c48aad8770482f4739beed696";
+    const multicallContract = new ethers.Contract(multicallAddr, multicallAbi, provider);
+
+    // Prepare the calldata for all tokens
+    const calls = tokensData.flatMap(token => {
+        const contractInterface = new ethers.Interface(tokenJson.abi);
+
+        return [
+            // Call balanceOf(walletAddr), decimals(), name(), and symbol()
+            {
+                target: token.token_address,
+                callData: contractInterface.encodeFunctionData('balanceOf', [walletAddr]),
+            },
+            {
+                target: token.token_address,
+                callData: contractInterface.encodeFunctionData('decimals', []),
+            },
+            {
+                target: token.token_address,
+                callData: contractInterface.encodeFunctionData('name', []),
+            },
+            {
+                target: token.token_address,
+                callData: contractInterface.encodeFunctionData('symbol', []),
+            }
+        ];
+    });
 
     try {
-        const name = await contract.name();
-        const symbol = await contract.symbol();
-        const decimals = await contract.decimals();
-        const totalSupply = await contract.totalSupply();
-    
-        console.log(`Name: ${name}`)
-        console.log(`Symbol: ${symbol}`)
-        console.log(`Decimals: ${decimals}`)
-        console.log(`Total Supply: ${totalSupply}`)
+        // Aggregate call using multicall
+        const [, returnData] = await multicallContract.aggregate(calls);
 
+        const tokenBalances = tokensData.map((token, index) => {
+            const balanceData = returnData[index * 4]; // balanceOf result
+            const decimalsData = returnData[index * 4 + 1]; // decimals result
+            const nameData = returnData[index * 4 + 2]; // name result
+            const symbolData = returnData[index * 4 + 3]; // symbol result
+
+            // Decode the returned data
+            const contractInterface = new ethers.Interface(tokenJson.abi);
+            const balance = contractInterface.decodeFunctionResult('balanceOf', balanceData)[0];
+            const decimals = contractInterface.decodeFunctionResult('decimals', decimalsData)[0];
+            const name = contractInterface.decodeFunctionResult('name', nameData)[0];
+            const symbol = contractInterface.decodeFunctionResult('symbol', symbolData)[0];
+
+
+            return {
+                tokenAddress: token.token_address,
+                balance: ethers.formatUnits(balance, decimals),
+                name,
+                symbol,
+            };
+        })
+
+        return tokenBalances;
     } catch (error) {
-        console.error('Error fetching contract details: ', error);
+        console.error('Error in Multicall: ', error);
+        return [];
     }
-}
+};
 
 export default async function Address({ params }) {
     const balance = await getBalance(params.address);
     const data = await getTokenBalances(params.address);
-
-    data.forEach(token => {
-        // console.log(token.token_address)
-        getContractDetails(token.token_address);
-    });
-    // console.log("api response", data || "no data")
+    console.log(await getContractDetails(data, params.address));
 
     return (
         <main className={`container ${styles.main}`}>
