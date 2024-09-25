@@ -3,6 +3,8 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import styles from "../../styles.css";
 import moment from 'moment';
 import { ethers } from "ethers";
+import { TickMath, FullMath } from '@uniswap/v3-sdk';
+import JSBI from 'jsbi';
 import tokenJson from "../../token.json";
 import multicallAbi from "../../multicall.json";
 
@@ -11,6 +13,8 @@ const alchemyKey = process.env.ALCHEMY_API_KEY;
 const moralisKey = process.env.MORALIS_API_KEY;
 const infuraURL = `https://mainnet.infura.io/v3/${infuraKey}`
 // const alchemyURL = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
+
+const provider = new ethers.JsonRpcProvider(infuraURL);
 
 // Get token balances for Ethereum address
 const getTokenBalances = async (address) => {
@@ -60,7 +64,7 @@ const getBalance = async (address) => {
 
 // Fetch ERC20 token details for the wallet address by the token contract address via multicall
 const getContractDetails = async (tokensData, walletAddr) => {
-    const provider = new ethers.JsonRpcProvider(infuraURL);
+    // const provider = new ethers.JsonRpcProvider(infuraURL);
     const multicallAddr = "0x5ba1e12693dc8f9c48aad8770482f4739beed696";
     const multicallContract = new ethers.Contract(multicallAddr, multicallAbi, provider);
 
@@ -106,7 +110,6 @@ const getContractDetails = async (tokensData, walletAddr) => {
             const name = contractInterface.decodeFunctionResult('name', nameData)[0];
             const symbol = contractInterface.decodeFunctionResult('symbol', symbolData)[0];
 
-
             return {
                 tokenAddress: token.token_address,
                 balance: ethers.formatUnits(balance, decimals),
@@ -122,10 +125,78 @@ const getContractDetails = async (tokensData, walletAddr) => {
     }
 };
 
+// Gets tick for pair and calculates price quote
+const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
+    // Get the current tick for pair from the Uniswap pool contract
+    // 0xCBCdF9626bC03E24f779434178A73a0B4bad62eD WBTC/ETH
+    // use uniswap factory to get the pool
+    const UNISWAP_V3_FACTORY_ADDR = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
+    
+    // ABI for Uniswap V3 Factory
+    const UniswapV3FactoryABI = [
+        "function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address)"
+    ];
+
+    // ABI for Uniswap V3 Pool to get slot0 (tick data)
+    const UniswapV3PoolABI = [
+        "function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)"
+    ];
+
+    // Fee tiers for Uniswap V3 (in basis points)
+    const FEE_TIERS = [500, 3000, 10000]; // 0.05%, 0.3%, and 1%
+
+    const factoryContract = new ethers.Contract(UNISWAP_V3_FACTORY_ADDR, UniswapV3FactoryABI, provider);
+    
+    let bestPrice = null;
+    let bestPool = null;
+
+    for (const fee of FEE_TIERS) {
+        //
+        const poolAddr = await factoryContract.getPool(baseToken, quoteToken, fee);
+        if (poolAddr === "0x0000000000000000000000000000000000000000") {
+            // No pool for this fee tier
+            continue;
+        }
+
+        const poolContract = new ethers.Contract(poolAddr, UniswapV3PoolABI, provider);
+        const { tick: currentTick } = await poolContract.slot0();
+
+        // const currentTick = 262186
+        const baseTokenDecimal = 8 
+        const quoteTokenDecimal = 18 // ETH decimal
+
+        //
+        const sqrtRatioX96 = TickMath.getSqrtRatioAtTick(Number(currentTick));
+        const ratioX192 = JSBI.multiply(sqrtRatioX96, sqrtRatioX96);
+        const baseAmount = JSBI.BigInt(inputAmount * (10**baseTokenDecimal));
+        const shift = JSBI.leftShift(JSBI.BigInt(1), JSBI.BigInt(192));
+    
+        //
+        const quoteAmount = FullMath.mulDivRoundingUp(ratioX192, baseAmount, shift);
+        const value = quoteAmount.toString() / 10**quoteTokenDecimal;
+
+        console.log(`Price for fee tier ${fee / 10000}%: ${value}`);
+
+        // 
+        if (!bestPrice || value < bestPrice) {
+            bestPrice = value;
+            bestPool = poolAddr;
+        }
+    }
+
+    console.log(`Best price: ${bestPrice}, from pool: ${bestPool}`);
+}
+
 export default async function Address({ params }) {
     const balance = await getBalance(params.address);
     const data = await getTokenBalances(params.address);
-    console.log(await getContractDetails(data, params.address));
+    // console.log(await getContractDetails(data, params.address));
+
+    await getPriceQuote(
+        "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", // WBTC
+        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+        1
+    );
 
     return (
         <main className={`container ${styles.main}`}>
