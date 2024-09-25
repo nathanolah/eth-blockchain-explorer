@@ -13,6 +13,7 @@
     "@uniswap/v3-sdk": "^3.14.0",
     "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.3",
+    "ethereum-multicall": "^2.26.0",
     "ethers": "^6.13.2",
     "jsbi": "^4.3.0",
     "moment": "^2.30.1",

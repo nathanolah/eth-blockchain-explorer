@@ -3,18 +3,34 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import styles from "../../styles.css";
 import moment from 'moment';
 import { ethers } from "ethers";
+// import * as ethers from "ethers";
 import { TickMath, FullMath } from '@uniswap/v3-sdk';
+import { Multicall } from 'ethereum-multicall';
 import JSBI from 'jsbi';
 import tokenJson from "../../token.json";
 import multicallAbi from "../../multicall.json";
 
+// const alchemyKey = process.env.ALCHEMY_API_KEY;
 const infuraKey = process.env.INFURA_API_KEY;
-const alchemyKey = process.env.ALCHEMY_API_KEY;
 const moralisKey = process.env.MORALIS_API_KEY;
-const infuraURL = `https://mainnet.infura.io/v3/${infuraKey}`
 // const alchemyURL = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
+const infuraURL = `https://mainnet.infura.io/v3/${infuraKey}`
 
 const provider = new ethers.JsonRpcProvider(infuraURL);
+const multicall = new Multicall({ ethersProvider: provider, tryAggregate: true });
+
+// use uniswap factory to get the pool
+const UNISWAP_V3_FACTORY_ADDR = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
+    
+// ABI for Uniswap V3 Factory
+const UniswapV3FactoryABI = [
+    "function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address)"
+];
+
+// ABI for Uniswap V3 Pool to get slot0 (tick data)
+const UniswapV3PoolABI = [
+    "function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)"
+];
 
 // Get token balances for Ethereum address
 const getTokenBalances = async (address) => {
@@ -128,68 +144,77 @@ const getContractDetails = async (tokensData, walletAddr) => {
 // Gets tick for pair and calculates price quote
 const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
     // Get the current tick for pair from the Uniswap pool contract
-    // 0xCBCdF9626bC03E24f779434178A73a0B4bad62eD WBTC/ETH
-    // use uniswap factory to get the pool
-    const UNISWAP_V3_FACTORY_ADDR = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
-    
-    // ABI for Uniswap V3 Factory
-    const UniswapV3FactoryABI = [
-        "function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address)"
-    ];
-
-    // ABI for Uniswap V3 Pool to get slot0 (tick data)
-    const UniswapV3PoolABI = [
-        "function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)"
-    ];
-
     // Fee tiers for Uniswap V3 (in basis points)
-    const FEE_TIERS = [500, 3000, 10000]; // 0.05%, 0.3%, and 1%
+    // const FEE_TIERS = [500, 3000, 10000]; // 0.05%, 0.3%, and 1%
+    const FEE_TIERS = [3000]
 
-    const factoryContract = new ethers.Contract(UNISWAP_V3_FACTORY_ADDR, UniswapV3FactoryABI, provider);
     
-    let bestPrice = null;
-    let bestPool = null;
+    const factoryContract = new ethers.Contract(UNISWAP_V3_FACTORY_ADDR, UniswapV3FactoryABI, provider);
+    const calls = [];
 
     for (const fee of FEE_TIERS) {
-        //
-        const poolAddr = await factoryContract.getPool(baseToken, quoteToken, fee);
-        if (poolAddr === "0x0000000000000000000000000000000000000000") {
-            // No pool for this fee tier
-            continue;
-        }
-
-        const poolContract = new ethers.Contract(poolAddr, UniswapV3PoolABI, provider);
-        const { tick: currentTick } = await poolContract.slot0();
-
-        // const currentTick = 262186
-        const baseTokenDecimal = 8 
-        const quoteTokenDecimal = 18 // ETH decimal
-
-        //
-        const sqrtRatioX96 = TickMath.getSqrtRatioAtTick(Number(currentTick));
-        const ratioX192 = JSBI.multiply(sqrtRatioX96, sqrtRatioX96);
-        const baseAmount = JSBI.BigInt(inputAmount * (10**baseTokenDecimal));
-        const shift = JSBI.leftShift(JSBI.BigInt(1), JSBI.BigInt(192));
-    
-        //
-        const quoteAmount = FullMath.mulDivRoundingUp(ratioX192, baseAmount, shift);
-        const value = quoteAmount.toString() / 10**quoteTokenDecimal;
-
-        console.log(`Price for fee tier ${fee / 10000}%: ${value}`);
-
-        // 
-        if (!bestPrice || value < bestPrice) {
-            bestPrice = value;
-            bestPool = poolAddr;
+        const poolAddress = await factoryContract.getPool(baseToken, quoteToken, fee);
+        
+        if (poolAddress !== "0x0000000000000000000000000000000000000000") {
+            const poolContract = new ethers.Contract(poolAddress, UniswapV3PoolABI, provider);
+            calls.push({
+                target: poolAddress,
+                callData: poolContract.interface.encodeFunctionData("slot0")
+            });
         }
     }
+    
+    if (calls.length === 0) {
+        throw new Error("No pools found for this token pair");
+    }
 
-    console.log(`Best price: ${bestPrice}, from pool: ${bestPool}`);
+    // for each call your going to decode the functions of the pool contract using UniswapPoolABI
+    const multicallAddr = "0x5ba1e12693dc8f9c48aad8770482f4739beed696";
+    const multicallContract = new ethers.Contract(multicallAddr, multicallAbi, provider);
+
+    try {
+        const [, returnData] = await multicallContract.aggregate(calls);
+        let bestPrice = null
+        let bestPool = null;
+
+        for (let i = 0; i < returnData.length; i++) {
+            const contractInterface = new ethers.Interface(UniswapV3PoolABI);
+            const decodedData = contractInterface.decodeFunctionResult('slot0', returnData[i]);
+            const currentTick = decodedData[1];
+
+            const baseTokenDecimal = 8 
+            const quoteTokenDecimal = 18 // ETH decimal
+
+            const sqrtRatioX96 = TickMath.getSqrtRatioAtTick(Number(currentTick));
+            const ratioX192 = JSBI.multiply(sqrtRatioX96, sqrtRatioX96);
+            const baseAmount = JSBI.BigInt(inputAmount * (10**baseTokenDecimal));
+            const shift = JSBI.leftShift(JSBI.BigInt(1), JSBI.BigInt(192));
+    
+            const quoteAmount = FullMath.mulDivRoundingUp(ratioX192, baseAmount, shift);
+            const value = quoteAmount.toString() / 10**quoteTokenDecimal;
+            const poolAddress = calls[i].target;
+    
+            console.log(`Price for pool ${poolAddress}: ${value}`);
+    
+            if (!bestPrice || value < bestPrice) {
+                bestPrice = value;
+                bestPool = poolAddress;
+            }
+
+        }
+
+        console.log(`Best price: ${bestPrice}, from pool: ${bestPool}`);
+
+
+    } catch (error) {
+        console.error('Error in Multicall: ', error);
+        return [];
+    }
 }
 
 export default async function Address({ params }) {
-    const balance = await getBalance(params.address);
-    const data = await getTokenBalances(params.address);
+    // const balance = await getBalance(params.address);
+    // const data = await getTokenBalances(params.address);
     // console.log(await getContractDetails(data, params.address));
 
     await getPriceQuote(
@@ -210,11 +235,11 @@ export default async function Address({ params }) {
                     <h2 className="h5 mb-3">Address Details</h2>
                     <div className="d-flex justify-content-center align-items-center">
                         <p className="text-muted mb-0">Address:&nbsp;</p>
-                        <p className="font-weight-bold text-break mb-0 ml-2">{params.address}</p>
+                        {/* <p className="font-weight-bold text-break mb-0 ml-2">{params.address}</p> */}
                     </div>
                     <div className="d-flex justify-content-center align-items-center">
                         <p className="text-muted mb-0">ETH Balance:&nbsp;</p>
-                        <p className="font-weight-bold text-break mb-0 ml-2">{ethers.formatEther(balance)} ETH</p>
+                        {/* <p className="font-weight-bold text-break mb-0 ml-2">{ethers.formatEther(balance)} ETH</p> */}
                     </div>
                 </div>
             </section>
