@@ -166,7 +166,7 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
         throw new Error("No pools found for this token pair");
     }
 
-    // for each call your going to decode the functions of the pool contract using UniswapPoolABI
+    // for each call decode the functions of the pool contract using UniswapPoolABI
     const multicallAddr = "0x5ba1e12693dc8f9c48aad8770482f4739beed696";
     const multicallContract = new ethers.Contract(multicallAddr, multicallAbi, provider);
 
