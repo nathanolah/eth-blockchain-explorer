@@ -3,9 +3,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import styles from "../../styles.css";
 import moment from 'moment';
 import { ethers } from "ethers";
-// import * as ethers from "ethers";
 import { TickMath, FullMath } from '@uniswap/v3-sdk';
-import { Multicall } from 'ethereum-multicall';
 import JSBI from 'jsbi';
 import tokenJson from "../../token.json";
 import multicallAbi from "../../multicall.json";
@@ -16,8 +14,7 @@ const moralisKey = process.env.MORALIS_API_KEY;
 // const alchemyURL = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
 const infuraURL = `https://mainnet.infura.io/v3/${infuraKey}`
 
-const provider = new ethers.JsonRpcProvider(infuraURL);
-const multicall = new Multicall({ ethersProvider: provider, tryAggregate: true });
+// const provider = new ethers.JsonRpcProvider(infuraURL);
 
 // use uniswap factory to get the pool
 const UNISWAP_V3_FACTORY_ADDR = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
@@ -80,7 +77,7 @@ const getBalance = async (address) => {
 
 // Fetch ERC20 token details for the wallet address by the token contract address via multicall
 const getContractDetails = async (tokensData, walletAddr) => {
-    // const provider = new ethers.JsonRpcProvider(infuraURL);
+    const provider = new ethers.JsonRpcProvider(infuraURL);
     const multicallAddr = "0x5ba1e12693dc8f9c48aad8770482f4739beed696";
     const multicallContract = new ethers.Contract(multicallAddr, multicallAbi, provider);
 
@@ -146,9 +143,10 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
     // Get the current tick for pair from the Uniswap pool contract
     // Fee tiers for Uniswap V3 (in basis points)
     // const FEE_TIERS = [500, 3000, 10000]; // 0.05%, 0.3%, and 1%
+    const provider = new ethers.JsonRpcProvider(infuraURL);
     const FEE_TIERS = [3000]
 
-    
+
     const factoryContract = new ethers.Contract(UNISWAP_V3_FACTORY_ADDR, UniswapV3FactoryABI, provider);
     const calls = [];
 
@@ -213,15 +211,20 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
 }
 
 export default async function Address({ params }) {
-    // const balance = await getBalance(params.address);
-    // const data = await getTokenBalances(params.address);
+    const balance = await getBalance(params.address);
+    const data = await getTokenBalances(params.address);
     // console.log(await getContractDetails(data, params.address));
 
-    await getPriceQuote(
-        "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", // WBTC
-        "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
-        1
-    );
+    // TODO : inject the token address/ETH to get tick value
+    // Output the data onto the app
+    // Get ETH/USD value from chainlink oracle.
+    // 
+
+    // await getPriceQuote(
+    //     "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", // WBTC
+    //     "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+    //     1
+    // );
 
     return (
         <main className={`container ${styles.main}`}>
@@ -235,11 +238,11 @@ export default async function Address({ params }) {
                     <h2 className="h5 mb-3">Address Details</h2>
                     <div className="d-flex justify-content-center align-items-center">
                         <p className="text-muted mb-0">Address:&nbsp;</p>
-                        {/* <p className="font-weight-bold text-break mb-0 ml-2">{params.address}</p> */}
+                        <p className="font-weight-bold text-break mb-0 ml-2">{params.address}</p>
                     </div>
                     <div className="d-flex justify-content-center align-items-center">
                         <p className="text-muted mb-0">ETH Balance:&nbsp;</p>
-                        {/* <p className="font-weight-bold text-break mb-0 ml-2">{ethers.formatEther(balance)} ETH</p> */}
+                        <p className="font-weight-bold text-break mb-0 ml-2">{ethers.formatEther(balance)} ETH</p>
                     </div>
                 </div>
             </section>
