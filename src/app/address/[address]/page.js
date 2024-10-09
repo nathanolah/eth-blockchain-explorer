@@ -8,14 +8,11 @@ import JSBI from 'jsbi';
 import tokenJson from "../../token.json";
 import multicallAbi from "../../multicall.json";
 
-// const alchemyKey = process.env.ALCHEMY_API_KEY;
 const infuraKey = process.env.INFURA_API_KEY;
 const moralisKey = process.env.MORALIS_API_KEY;
-// const alchemyURL = `https://eth-mainnet.g.alchemy.com/v2/${alchemyKey}`;
 const infuraURL = `https://mainnet.infura.io/v3/${infuraKey}`
 
-// const provider = new ethers.JsonRpcProvider(infuraURL);
-
+//
 // use uniswap factory to get the pool
 const UNISWAP_V3_FACTORY_ADDR = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
     
@@ -28,6 +25,28 @@ const UniswapV3FactoryABI = [
 const UniswapV3PoolABI = [
     "function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)"
 ];
+
+// Get the current market price for ETH/USD pair
+const getEthUSDPrice = async () => {
+    const WETH_ADDR = `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`;
+    const moralisURL = `https://deep-index.moralis.io/api/v2.2/erc20/${WETH_ADDR}/price?chain=eth&include=percent_change`
+    const res = await fetch(moralisURL, {
+        mehtod: "GET",
+        headers: {
+            "accept": "application/json",
+            "X-API-Key": `${moralisKey}`
+        }
+    });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        console.error("Error response:", errorText);
+        throw new Error("Failed to fetch token details");
+    }
+    
+    const data = await res.json();
+    return data;
+}
 
 // Get token balances for Ethereum address
 const getTokenBalances = async (address) => {
@@ -128,6 +147,7 @@ const getContractDetails = async (tokensData, walletAddr) => {
                 balance: ethers.formatUnits(balance, decimals),
                 name,
                 symbol,
+                decimals
             };
         })
 
@@ -139,14 +159,12 @@ const getContractDetails = async (tokensData, walletAddr) => {
 };
 
 // Gets tick for pair and calculates price quote
-const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
+const getPriceQuote = async (baseToken, quoteToken, baseDecimal, inputAmount) => {
     // Get the current tick for pair from the Uniswap pool contract
     // Fee tiers for Uniswap V3 (in basis points)
     // const FEE_TIERS = [500, 3000, 10000]; // 0.05%, 0.3%, and 1%
     const provider = new ethers.JsonRpcProvider(infuraURL);
     const FEE_TIERS = [3000]
-
-
     const factoryContract = new ethers.Contract(UNISWAP_V3_FACTORY_ADDR, UniswapV3FactoryABI, provider);
     const calls = [];
 
@@ -162,9 +180,9 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
         }
     }
     
-    if (calls.length === 0) {
-        throw new Error("No pools found for this token pair");
-    }
+    // if (calls.length === 0) {
+    //     throw new Error("No pools found for this token pair");
+    // }
 
     // for each call decode the functions of the pool contract using UniswapPoolABI
     const multicallAddr = "0x5ba1e12693dc8f9c48aad8770482f4739beed696";
@@ -180,8 +198,8 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
             const decodedData = contractInterface.decodeFunctionResult('slot0', returnData[i]);
             const currentTick = decodedData[1];
 
-            const baseTokenDecimal = 8 
-            const quoteTokenDecimal = 18 // ETH decimal
+            const baseTokenDecimal = baseDecimal;
+            const quoteTokenDecimal = 18; // ETH decimal
 
             const sqrtRatioX96 = TickMath.getSqrtRatioAtTick(Number(currentTick));
             const ratioX192 = JSBI.multiply(sqrtRatioX96, sqrtRatioX96);
@@ -192,7 +210,7 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
             const value = quoteAmount.toString() / 10**quoteTokenDecimal;
             const poolAddress = calls[i].target;
     
-            console.log(`Price for pool ${poolAddress}: ${value}`);
+            // console.log(`Price for pool ${poolAddress}: ${value}`);
     
             if (!bestPrice || value < bestPrice) {
                 bestPrice = value;
@@ -201,8 +219,15 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
 
         }
 
-        console.log(`Best price: ${bestPrice}, from pool: ${bestPool}`);
+        // Best price in ETH
+        // console.log(`Best price: ${bestPrice}, from pool: ${bestPool}`);
+        const ETHUSD = await getEthUSDPrice();
+        const currentValue = bestPrice * ETHUSD.usdPrice;
 
+        return {
+            currentValue,
+            bestPool
+        };
 
     } catch (error) {
         console.error('Error in Multicall: ', error);
@@ -213,18 +238,29 @@ const getPriceQuote = async (baseToken, quoteToken, inputAmount) => {
 export default async function Address({ params }) {
     const balance = await getBalance(params.address);
     const data = await getTokenBalances(params.address);
-    // console.log(await getContractDetails(data, params.address));
+    const contractsData = await getContractDetails(data, params.address);
 
-    // TODO : inject the token address/ETH to get tick value
-    // Output the data onto the app
     // Get ETH/USD value from chainlink oracle.
-    // 
 
-    // await getPriceQuote(
+    // USE FOR TESTING
+    // const result = await getPriceQuote(
     //     "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", // WBTC
     //     "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+    //     8, // decimal
     //     1
     // );
+
+    const priceQuotes = await Promise.all(
+        contractsData.map(async (contract) => {
+            const quote = await getPriceQuote(
+                contract.tokenAddress,
+                "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2", // WETH
+                Number(contract.decimals),
+                contract.balance
+            );
+            return { ...contract, priceQuote: quote};
+        })      
+    );
 
     return (
         <main className={`container ${styles.main}`}>
@@ -243,6 +279,29 @@ export default async function Address({ params }) {
                     <div className="d-flex justify-content-center align-items-center">
                         <p className="text-muted mb-0">ETH Balance:&nbsp;</p>
                         <p className="font-weight-bold text-break mb-0 ml-2">{ethers.formatEther(balance)} ETH</p>
+                    </div>
+                </div>
+
+                {/* Display each token's details */}
+                <div className="mt-4">
+                    <h3 className="h5 mb-3">Token Details</h3>
+                    <div className="row">
+                        {priceQuotes.map((token, index) => (
+                            <div key={index} className="col-md-4 mb-3">
+                                <div className="card token-card p-3">
+                                    <h4 className="h6 font-weight-bold mb-1">{token.symbol}</h4>
+                                    <p className="text-muted mb-0">
+                                        Token Address: {token.tokenAddress}
+                                    </p>
+                                    <p className="mb-0">
+                                        Balance: {token.balance}
+                                    </p>
+                                    <p className="mb-0">
+                                        ${token.priceQuote.currentValue} USD
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             </section>
